@@ -1,17 +1,16 @@
 import { env } from 'cloudflare:workers';
 import { McpAgent } from 'agents/mcp';
 import { endpointURLString } from '@cloudflare/playwright';
-// @ts-expect-error — internal library path, no declaration file
+// @ts-ignore — internal library path, no declaration file
 import { createConnection } from '../node_modules/@cloudflare/playwright-mcp/lib/esm/src/index.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
 // ---------------------------------------------------------------------------
-// Cookie tool schemas
+// Cookie tool Zod schemas (for runtime validation)
 // ---------------------------------------------------------------------------
 
 const CookiesGetInputSchema = z.object({
@@ -48,13 +47,29 @@ const CookiesClearInputSchema = z.object({
   path: z.string().optional().describe('Only clear cookies with this path'),
 });
 
+// ---------------------------------------------------------------------------
+// Cookie tool JSON schemas (hand-written to avoid zod-to-json-schema dep)
+// ---------------------------------------------------------------------------
+
 const COOKIE_TOOLS = [
   {
     name: 'browser_cookies_get',
     title: 'Get browser cookies',
     description:
       'Returns cookies from the browser context. Optionally filter by URL(s). Returns a JSON array of cookie objects.',
-    inputSchema: zodToJsonSchema(CookiesGetInputSchema),
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        urls: {
+          type: 'array' as const,
+          items: { type: 'string' as const },
+          description:
+            'Optional list of URLs to filter cookies by. Returns all cookies if omitted.',
+        },
+      },
+      additionalProperties: false,
+      $schema: 'http://json-schema.org/draft-07/schema#',
+    },
     annotations: {
       title: 'Get browser cookies',
       readOnlyHint: true,
@@ -67,7 +82,47 @@ const COOKIE_TOOLS = [
     title: 'Set browser cookies',
     description:
       'Adds one or more cookies to the browser context. Each cookie must have at least name, value, and either url or domain.',
-    inputSchema: zodToJsonSchema(CookiesSetInputSchema),
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        cookies: {
+          type: 'array' as const,
+          items: {
+            type: 'object' as const,
+            properties: {
+              name: { type: 'string' as const, description: 'Cookie name' },
+              value: { type: 'string' as const, description: 'Cookie value' },
+              url: { type: 'string' as const, description: 'URL to associate the cookie with' },
+              domain: { type: 'string' as const, description: 'Cookie domain' },
+              path: { type: 'string' as const, description: 'Cookie path' },
+              expires: {
+                type: 'number' as const,
+                description: 'Cookie expiration as Unix epoch in seconds',
+              },
+              httpOnly: {
+                type: 'boolean' as const,
+                description: 'Whether the cookie is HTTP-only',
+              },
+              secure: {
+                type: 'boolean' as const,
+                description: 'Whether the cookie is secure',
+              },
+              sameSite: {
+                type: 'string' as const,
+                enum: ['Strict', 'Lax', 'None'],
+                description: 'Cookie SameSite attribute',
+              },
+            },
+            required: ['name', 'value'],
+            additionalProperties: false,
+          },
+          description: 'Array of cookies to set',
+        },
+      },
+      required: ['cookies'],
+      additionalProperties: false,
+      $schema: 'http://json-schema.org/draft-07/schema#',
+    },
     annotations: {
       title: 'Set browser cookies',
       readOnlyHint: false,
@@ -80,7 +135,19 @@ const COOKIE_TOOLS = [
     title: 'Clear browser cookies',
     description:
       'Clears cookies from the browser context. Optionally filter by name, domain, and/or path. Clears all cookies if no filters are provided.',
-    inputSchema: zodToJsonSchema(CookiesClearInputSchema),
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string' as const, description: 'Only clear cookies with this name' },
+        domain: {
+          type: 'string' as const,
+          description: 'Only clear cookies for this domain',
+        },
+        path: { type: 'string' as const, description: 'Only clear cookies with this path' },
+      },
+      additionalProperties: false,
+      $schema: 'http://json-schema.org/draft-07/schema#',
+    },
     annotations: {
       title: 'Clear browser cookies',
       readOnlyHint: false,
